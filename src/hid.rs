@@ -28,16 +28,16 @@ impl Hid {
                 api.device_list()
                     .map(|info| {
                         let mut dict = VarDictionary::new();
-                        dict.insert("path", GString::from(info.path().to_string_lossy().as_ref()));
+                        dict.insert("path", info.path().to_string_lossy().as_ref());
                         dict.insert("vid", info.vendor_id());
                         dict.insert("pid", info.product_id());
-                        dict.insert("serial_number", GString::from(info.serial_number().unwrap_or_default()));
+                        dict.insert("serial_number", info.serial_number().unwrap_or_default());
                         dict.insert("release_number", info.release_number());
                         dict.insert(
                             "manufacturer_string",
-                            GString::from(info.manufacturer_string().unwrap_or_default()),
+                            info.manufacturer_string().unwrap_or_default(),
                         );
-                        dict.insert("product_string", GString::from(info.product_string().unwrap_or_default()));
+                        dict.insert("product_string", info.product_string().unwrap_or_default());
                         dict.insert("usage_page", info.usage_page());
                         dict.insert("usage", info.usage());
                         dict.insert("interface_number", info.interface_number());
@@ -264,16 +264,16 @@ impl Hid {
             match dev.get_device_info() {
                 Ok(dev) => {
                     let mut dict = VarDictionary::new();
-                    dict.insert("path", GString::from(dev.path().to_string_lossy().as_ref()));
+                    dict.insert("path", dev.path().to_string_lossy().as_ref());
                     dict.insert("vid", dev.vendor_id());
                     dict.insert("pid", dev.product_id());
-                    dict.insert("serial_number", GString::from(dev.serial_number().unwrap_or_default()));
+                    dict.insert("serial_number", dev.serial_number().unwrap_or_default());
                     dict.insert("release_number", dev.release_number());
                     dict.insert(
                         "manufacturer_string",
-                        GString::from(dev.manufacturer_string().unwrap_or_default()),
+                        dev.manufacturer_string().unwrap_or_default(),
                     );
-                    dict.insert("product_string", GString::from(dev.product_string().unwrap_or_default()));
+                    dict.insert("product_string", dev.product_string().unwrap_or_default());
                     dict.insert("usage_page", dev.usage_page());
                     dict.insert("usage", dev.usage());
                     dict.insert("interface_number", dev.interface_number());
@@ -295,7 +295,7 @@ impl Hid {
         if let Some(ref dev) = self.dev {
             if let Ok(manufacturer_string) = dev.get_manufacturer_string() {
                 if let Some(manufacturer_string) = manufacturer_string {
-                    return manufacturer_string.into();
+                    return (&manufacturer_string).into();
                 } else {
                     return "".into();
                 }
@@ -313,7 +313,7 @@ impl Hid {
         if let Some(ref dev) = self.dev {
             if let Ok(product_string) = dev.get_product_string() {
                 if let Some(product_string) = product_string {
-                    return product_string.into();
+                    return (&product_string).into();
                 } else {
                     return "".into();
                 }
@@ -331,7 +331,7 @@ impl Hid {
         if let Some(ref dev) = self.dev {
             if let Ok(serial_number_string) = dev.get_serial_number_string() {
                 if let Some(serial_number_string) = serial_number_string {
-                    return serial_number_string.into();
+                    return (&serial_number_string).into();
                 } else {
                     return "".into();
                 }
@@ -349,7 +349,7 @@ impl Hid {
         if let Some(ref dev) = self.dev {
             if let Ok(indexed_string) = dev.get_indexed_string(index) {
                 if let Some(indexed_string) = indexed_string {
-                    return indexed_string.into();
+                    return (&indexed_string).into();
                 } else {
                     return "".into();
                 }
