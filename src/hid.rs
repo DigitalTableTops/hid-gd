@@ -220,10 +220,10 @@ impl Hid {
     /// Upon return, the first byte will still contain the Report ID, and the
     /// report data will start in `buf[1]`.
     #[func]
-    fn get_feature_report(&mut self, report_id: u8, size: usize) -> PackedByteArray {
+    fn get_feature_report(&mut self, report_id: u8, size: i64) -> PackedByteArray {
         match self.dev {
             Some(ref mut dev) => {
-                let mut buf = vec![0u8; size];
+                let mut buf = vec![0u8; size as usize];
                 buf[0] = report_id;
                 match dev.get_feature_report(buf.as_mut_slice()) {
                     Ok(bytes) => buf.as_slice()[1..bytes].into(),
