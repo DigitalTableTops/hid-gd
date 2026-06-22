@@ -22,22 +22,22 @@ impl IRefCounted for Hid {
 #[godot_api]
 impl Hid {
     #[func]
-    fn list_devices() -> Array<Dictionary> {
+    fn list_devices() -> Array<Dictionary<Unshared>> {
         match HidApi::new() {
             Ok(api) => {
                 api.device_list()
                     .map(|info| {
-                        let mut dict = Dictionary::new();
-                        dict.insert("path", info.path().to_string_lossy().to_string());
+                        let mut dict = Dictionary::<Unshared>::new();
+                        dict.insert("path", GString::from(info.path().to_string_lossy().as_ref()));
                         dict.insert("vid", info.vendor_id());
                         dict.insert("pid", info.product_id());
-                        dict.insert("serial_number", info.serial_number().unwrap_or_default());
+                        dict.insert("serial_number", GString::from(info.serial_number().unwrap_or_default()));
                         dict.insert("release_number", info.release_number());
                         dict.insert(
                             "manufacturer_string",
-                            info.manufacturer_string().unwrap_or_default(),
+                            GString::from(info.manufacturer_string().unwrap_or_default()),
                         );
-                        dict.insert("product_string", info.product_string().unwrap_or_default());
+                        dict.insert("product_string", GString::from(info.product_string().unwrap_or_default()));
                         dict.insert("usage_page", info.usage_page());
                         dict.insert("usage", info.usage());
                         dict.insert("interface_number", info.interface_number());
@@ -259,21 +259,21 @@ impl Hid {
 
     /// Get [`DeviceInfo`] from a HID device.
     #[func]
-    fn get_device_info(&self) -> Dictionary {
+    fn get_device_info(&self) -> Dictionary<Unshared> {
         if let Some(ref dev) = self.dev {
             match dev.get_device_info() {
                 Ok(dev) => {
-                    let mut dict = Dictionary::new();
-                    dict.insert("path", dev.path().to_string_lossy().to_string());
+                    let mut dict = Dictionary::<Unshared>::new();
+                    dict.insert("path", GString::from(dev.path().to_string_lossy().as_ref()));
                     dict.insert("vid", dev.vendor_id());
                     dict.insert("pid", dev.product_id());
-                    dict.insert("serial_number", dev.serial_number().unwrap_or_default());
+                    dict.insert("serial_number", GString::from(dev.serial_number().unwrap_or_default()));
                     dict.insert("release_number", dev.release_number());
                     dict.insert(
                         "manufacturer_string",
-                        dev.manufacturer_string().unwrap_or_default(),
+                        GString::from(dev.manufacturer_string().unwrap_or_default()),
                     );
-                    dict.insert("product_string", dev.product_string().unwrap_or_default());
+                    dict.insert("product_string", GString::from(dev.product_string().unwrap_or_default()));
                     dict.insert("usage_page", dev.usage_page());
                     dict.insert("usage", dev.usage());
                     dict.insert("interface_number", dev.interface_number());
@@ -287,7 +287,7 @@ impl Hid {
         } else {
             godot_error!("Device not open");
         }
-        return Dictionary::new();
+        return Dictionary::<Unshared>::new();
     }
 
     #[func]
