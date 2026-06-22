@@ -1,51 +1,209 @@
-name: Build GDExtension
+# Action name
+name: Deploy
 
-on: [push, pull_request]
+# 触发条件，这里是新的 tag 被 push 时触发
+on:
+  push:
+    tags:
+      # 正则匹配 tag 格式，如 v0.1.0
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
 
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: 4.1
+
+# 实际工作
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
+  build-and-upload:
+    name: Build and Upload
     runs-on: ${{ matrix.os }}
+
     strategy:
+      fail-fast: false
+      # 配置编译目标平台，这里是在 Ubuntu, MacOS, Windows 上分别编译
       matrix:
         include:
-          - os: windows-latest
-            artifact: libhid_ext.dll
-          - os: ubuntu-latest
-            artifact: libhid_ext.so
-          - os: macos-latest
-            artifact: libhid_ext.dylib
+          - name: Linux (x64)
+            platform: linux
+            arch: x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            features: "linux-shared-hidraw"
 
+          - name: MacOS (x64)
+            platform: macos
+            arch: x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            features: ""
+        
+          - name: MacOS (arm64)
+            platform: macos
+            arch: arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            features: ""
+        
+          - name: Windows (x64)
+            platform: windows
+            arch: x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            features: ""
+    # 执行流程
     steps:
-      # v4.2.2+ completely removes the Node 20 deprecation warning
-      - name: Checkout Code
-        uses: actions/checkout@v4.2.2
-
-      - name: Install Linux Dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev pkg-config
-
-      # Setup MSVC Linker explicitly for Windows
-      - name: Setup MSVC
-        if: matrix.os == 'windows-latest'
-        uses: bus1/common-actions/setup-msvc@v1
+      # 克隆仓库代码
+      - name: Clone repository
+        uses: actions/checkout@v3
         with:
-          architecture: x64
+          submodules: recursive
 
-      # Pinning Rust compiler avoids the 101 compilation panic
-      - name: Install Rust Toolchain
+      # 获取发布版本号
+      - name: Get the release version from the tag
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      # 安装 rust
+      - name: Install rust
         uses: dtolnay/rust-toolchain@stable
+        # 将上面配置的 target 传入以安装工具链
         with:
-          toolchain: 1.75.0
+          targets: ${{ matrix.target }}
+      
+      # 安装依赖库
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            set -eux
+            sudo apt-get update -qq
+            sudo apt-get install -qqq libudev-dev
+            # sudo apt-get install -qqq libusb-1.0.0-dev
+            sudo apt-get install -qqq tree
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            brew install tree
+          fi
+    
+      # 构建二进制文件
+      - name: Build binary files (debug)
+        run: cargo build --verbose --target ${{ matrix.target }}
 
-      - name: Build Extension
-        run: cargo build --release
+      # 打包上传二进制文件
+      - name: Archive files (debug)
+        shell: bash
+        run: |
+          addon_name="hid"
+          bin_dir="debug_build/addons/$addon_name/bin"
+          bin_name="${addon_name}_ext"
+          
+          mkdir -p $bin_dir
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            tree target/${{ matrix.target }}/debug/
 
-      # v4.6.0+ removes the Node 20 warning for artifacts
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4.6.0
+            bin_file_debug="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.debug.so"
+            mv target/${{ matrix.target }}/debug/lib$bin_name.so $bin_dir/$bin_file_debug
+
+            debug_info="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.debug.so.dwp"
+            mv target/${{ matrix.target }}/debug/lib$bin_name.so.dwp $bin_dir/$debug_info
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            tree target/${{ matrix.target }}/debug/
+
+            bin_file_debug="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.debug.dylib"
+            mv target/${{ matrix.target }}/debug/lib$bin_name.dylib $bin_dir/$bin_file_debug
+
+            debug_info="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.debug.dylib.dSYM"
+            mv target/${{ matrix.target }}/debug/deps/lib$bin_name.dylib.dSYM $bin_dir/$debug_info
+          elif [ "${{ matrix.platform }}" = "windows" ]; then
+            bin_file_debug="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.debug.dll"
+            mv target/${{ matrix.target }}/debug/$bin_name.dll $bin_dir/$bin_file_debug
+
+            debug_info="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.debug.pdb"
+            mv target/${{ matrix.target }}/debug/$bin_name.pdb $bin_dir/$debug_info
+          else
+            echo "Unsupported platform: ${{ matrix.platform }}"
+          fi
+
+          cat>$bin_dir/../$addon_name.gdextension<<EOF
+          [configuration]
+          entry_symbol = "${addon_name}_ext_init"
+          compatibility_minimum = ${{ env.GODOT_VERSION }}
+
+          [libraries]
+          ${{ matrix.platform }}.${{ matrix.arch }}.debug = "bin/$bin_file_debug"
+
+          EOF
+
+          archive_name="$addon_name-${{ env.VERSION }}-${{ matrix.platform }}-${{ matrix.arch }}-debug"
+
+          cd debug_build
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            7z a "../$archive_name.zip" "addons"
+            echo "ASSET_DEBUG=$archive_name.zip" >> $GITHUB_ENV
+          else
+            tree addons
+            tar -czvf "../$archive_name.tar.gz" "addons"
+            echo "ASSET_DEBUG=$archive_name.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Release files (debug)
+        uses: softprops/action-gh-release@v1
         with:
-          name: hid-gd-${{ matrix.os }}
-          path: target/release/${{ matrix.artifact }}
+          files: |
+            ${{ env.ASSET_DEBUG }}
+
+      # 构建二进制文件
+      - name: Build binary files (release)
+        run: cargo build --verbose --release --target ${{ matrix.target }}
+
+      # 打包上传二进制文件
+      - name: Archive files (release)
+        shell: bash
+        run: |
+          addon_name="hid"
+          bin_dir="release_build/addons/$addon_name/bin"
+          bin_name="${addon_name}_ext"
+          
+          mkdir -p $bin_dir
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            bin_file_release="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.release.so"
+            mv target/${{ matrix.target }}/release/lib$bin_name.so $bin_dir/$bin_file_release
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            bin_file_release="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.release.dylib"
+            mv target/${{ matrix.target }}/release/lib$bin_name.dylib $bin_dir/$bin_file_release
+          elif [ "${{ matrix.platform }}" = "windows" ]; then
+            bin_file_release="lib$bin_name.${{ matrix.platform }}.${{ matrix.arch }}.release.dll"
+            mv target/${{ matrix.target }}/release/$bin_name.dll $bin_dir/$bin_file_release
+          else
+            echo "Unsupported platform: ${{ matrix.platform }}"
+          fi
+
+          cat>$bin_dir/../$addon_name.gdextension<<EOF
+          [configuration]
+          entry_symbol = "${addon_name}_ext_init"
+          compatibility_minimum = ${{ env.GODOT_VERSION }}
+
+          [libraries]
+          ${{ matrix.platform }}.${{ matrix.arch }} = "bin/$bin_file_release"
+
+          EOF
+
+          archive_name="$addon_name-${{ env.VERSION }}-${{ matrix.platform }}-${{ matrix.arch }}-release"
+
+          cd release_build
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            7z a "../$archive_name.zip" "addons"
+            echo "ASSET_RELEASE=$archive_name.zip" >> $GITHUB_ENV
+          else
+            tree addons
+            tar -czvf "../$archive_name.tar.gz" "addons"
+            echo "ASSET_RELEASE=$archive_name.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Release files (release)
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ env.ASSET_RELEASE }}
